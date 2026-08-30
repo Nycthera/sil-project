@@ -280,6 +280,7 @@ if user_input == "dev mode":
 
 if st.session_state.normal_mode == False and user_input == "norm mode":
     st.session_state.normal_mode = True
+    st.rerun()
 
 if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
