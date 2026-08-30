@@ -278,7 +278,7 @@ if user_input == "dev mode":
     st.session_state.normal_mode = False
     st.rerun()
 
-if st.session_state.normal_mode = False and user_input == "norm mode":
+if st.session_state.normal_mode == False and user_input == "norm mode":
     st.session_state.normal_mode = True
 
 if user_input:
