@@ -274,7 +274,7 @@ for msg in st.session_state.chat_history:
 
 user_input == st.chat_input("Say something...")
 
-if user_input = "dev mode":
+if user_input == "dev mode":
     st.session_state.normal_mode = False
     st.rerun()
 
