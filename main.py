@@ -18,7 +18,7 @@ from openai import OpenAI
 # -------------------------------------------------------------------
 
 if "normal_mode" not in st.session_state:
-    st.session_state.normal_mode = False
+    st.session_state.normal_mode = True
 
 # -------------------------------------------------------------------
 # Config
@@ -204,10 +204,10 @@ def require_login() -> None:
     st.title("Because of some people")
     st.caption("There is now a login screen")
     st.write("Please get a key from the owner to access.")
-    st.stop()
+    st.stop() 
 
 
-@st.dialog("🔒 Enter Passcode")
+@st.dialog("Enter Passcode")
 def login_dialog() -> None:
     password = st.text_input("Passcode", type="password", key="login_pw")
     if st.button("Enter"):
@@ -215,7 +215,7 @@ def login_dialog() -> None:
             st.session_state.logged_in = True
             st.rerun()
         else:
-            st.toast("❌ Wrong passcode", icon="🚫")
+            st.toast("Wrong passcode", icon="🚫")
             st.error("Incorrect passcode. Try again.")
 
 
@@ -235,13 +235,12 @@ if "super_mode" not in st.session_state:
 # -------------------------------------------------------------------
 
 with st.sidebar:
-    st.header("💢 Controls")
 
-    st.session_state.normal_mode = st.toggle(
-        "Normal assistant mode",
-        value=st.session_state.normal_mode,
-        help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
-    )
+   # st.session_state.normal_mode = st.toggle(
+      #  "Normal assistant mode",
+     #   value=st.session_state.normal_mode,
+    #    help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
+   #)
 
     st.session_state.super_mode = st.toggle(
         "Super mode",
@@ -266,14 +265,18 @@ if st.session_state.normal_mode:
     st.title("💬 Chat Assistant")
     st.caption("Ask me anything.")
 else:
-    st.title("💖💢 Your Completely Unhinged Waifu 💢💖")
-    st.caption("You can't escape me~ 😳🔪")
+    st.title("hmmmm. in dev. dont use")
+    st.caption("You can't escape me~ ")
 
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 user_input = st.chat_input("Say something...")
+
+if user_input = "dev mode":
+    st.session_state.normal_mode = False
+    st.rerun()
 
 if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
