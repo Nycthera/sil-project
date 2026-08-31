@@ -3,6 +3,8 @@ Unhinged Waifu — a silly persona chatbot built on Streamlit + Groq.
 
 Cleaned up from the original: dead code removed, persona data centralized,
 config validated up front, and the request/response flow simplified.
+
+Added: score-based profanity filtering on user input via alt-profanity-check.
 """
 
 import os
@@ -11,6 +13,7 @@ from dataclasses import dataclass, field
 
 import streamlit as st
 from openai import OpenAI
+from profanity_check import predict_prob
 
 # -------------------------------------------------------------------
 # Session state must be initialized before st.set_page_config() if the
@@ -31,6 +34,10 @@ else:
 
 GROQ_MODEL = "openai/gpt-oss-20b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+# Profanity filter threshold: predict_prob returns a float in [0, 1].
+# Anything at or above this is treated as profane and blocked.
+PROFANITY_THRESHOLD = 0.8
 
 
 def get_secret(name: str) -> str:
@@ -185,6 +192,17 @@ def build_system_prompt(super_mode: bool, normal_mode: bool = False) -> str:
 
 
 # -------------------------------------------------------------------
+# Profanity filter
+# -------------------------------------------------------------------
+
+def profanity_score(text: str) -> float:
+    """Return a 0-1 probability that `text` contains profanity."""
+    if not text:
+        return 0.0
+    return float(predict_prob([text])[0])
+
+
+# -------------------------------------------------------------------
 # Login gate
 # -------------------------------------------------------------------
 
@@ -283,21 +301,32 @@ if st.session_state.normal_mode == False and user_input == "norm mode":
     st.rerun()
 
 if user_input:
-    st.session_state.chat_history.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    score = profanity_score(user_input)
 
-    system_prompt = build_system_prompt(st.session_state.super_mode, st.session_state.normal_mode)
-    messages = [{"role": "system", "content": system_prompt}] + st.session_state.chat_history
+    if score >= PROFANITY_THRESHOLD:
+        # Don't add it to chat_history and don't call the model — just
+        # show it in this run so the user sees their own message and why
+        # it was blocked.
+        with st.chat_message("user"):
+            st.markdown(user_input)
+        with st.chat_message("assistant"):
+            st.warning(f"Message blocked by profanity filter (score: {score:.2f}).")
+    else:
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
 
-    with st.chat_message("assistant"):
-        with st.spinner("..."):
-            try:
-                response = client.chat.completions.create(model=GROQ_MODEL, messages=messages)
-                reply = response.choices[0].message.content
-            except Exception as e:
-                reply = f"*explodes dramatically* ERROR: {e}"
+        system_prompt = build_system_prompt(st.session_state.super_mode, st.session_state.normal_mode)
+        messages = [{"role": "system", "content": system_prompt}] + st.session_state.chat_history
 
-        st.markdown(reply)
+        with st.chat_message("assistant"):
+            with st.spinner("..."):
+                try:
+                    response = client.chat.completions.create(model=GROQ_MODEL, messages=messages)
+                    reply = response.choices[0].message.content
+                except Exception as e:
+                    reply = f"*explodes dramatically* ERROR: {e}"
 
-    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+            st.markdown(reply)
+
+        st.session_state.chat_history.append({"role": "assistant", "content": reply})
