@@ -309,18 +309,18 @@ if "super_mode" not in st.session_state:
 
 with st.sidebar:
 
-    st.session_state.normal_mode = st.toggle(
-        "Normal assistant mode",
-        value=st.session_state.normal_mode,
-        help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
-    )
+   # st.session_state.normal_mode = st.toggle(
+      #  "Normal assistant mode",
+     #   value=st.session_state.normal_mode,
+     #   help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
+ #   )
 
-    st.session_state.super_mode = st.toggle(
-        "Super mode",
-        value=st.session_state.super_mode,
-        disabled=st.session_state.normal_mode,
-        help="Only applies when normal assistant mode is off.",
-    )
+   # st.session_state.super_mode = st.toggle(
+      #  "Super mode",
+     #   value=st.session_state.super_mode,
+     #   disabled=st.session_state.normal_mode,
+      #  help="Only applies when normal assistant mode is off.",
+    #)
 
     if st.button("Clear chat"):
         st.session_state.chat_history = []
