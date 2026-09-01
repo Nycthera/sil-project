@@ -30,7 +30,7 @@ if "normal_mode" not in st.session_state:
 if st.session_state.normal_mode:
     st.set_page_config(page_title="Chat Assistant", page_icon="💬")
 else:
-    st.set_page_config(page_title="Unhinged Waifu", page_icon="💖")
+    st.set_page_config(page_title="hmm", page_icon="")
 
 GROQ_MODEL = "openai/gpt-oss-20b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -284,7 +284,7 @@ if st.session_state.normal_mode:
     st.caption("Ask me anything.")
 else:
     st.title("hmmmm. in dev. dont use")
-    st.caption("You can't escape me~ ")
+    st.caption("hmmm ")
 
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
@@ -310,7 +310,7 @@ if user_input:
         with st.chat_message("user"):
             st.markdown(user_input)
         with st.chat_message("assistant"):
-            st.warning(f"Message blocked by profanity filter (score: {score:.2f}).")
+            st.warning(f"Message blocked by profanity filter (score: {score}).")
     else:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
