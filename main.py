@@ -4,9 +4,9 @@ Unhinged Waifu — a silly persona chatbot built on Streamlit + Groq.
 Cleaned up from the original: dead code removed, persona data centralized,
 config validated up front, and the request/response flow simplified.
 
-Added: score-based profanity filtering on user input via alt-profanity-check.
+Added: double-layer profanity filtering (ML score + rule-based) on user input.
 Added: randomized comedic styles for normal assistant mode.
-Added: /roast easter egg for a one-off extra-savage reply.
+Added: /roast, /compliment, /8ball easter eggs.
 """
 
 import os
@@ -42,8 +42,15 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # Anything at or above this is treated as profane and blocked.
 PROFANITY_THRESHOLD = 0.8
 
-pf = ProfanityFilter()
+# Rule-based filter, used as a second opinion alongside the ML score.
+# Cached as a resource so it isn't rebuilt (it loads a wordlist/spacy
+# model under the hood) on every Streamlit rerun.
+@st.cache_resource
+def get_rule_based_filter() -> ProfanityFilter:
+    return ProfanityFilter()
 
+
+pf = get_rule_based_filter()
 
 
 def get_secret(name: str) -> str:
@@ -87,6 +94,8 @@ NORMAL_STYLES = [
     "an assistant who is deeply, personally offended by bad code or bad decisions, but fixes them anyway",
     "a noir detective narrating the investigation into why your code doesn't work",
     "an overly competitive assistant who treats every task like it's a speedrun",
+    "a nature documentary narrator observing the user's habits with hushed fascination",
+    "a conspiracy theorist who's convinced every bug is intentional sabotage",
 ]
 
 
@@ -123,6 +132,30 @@ ROAST_SYSTEM_PROMPT = (
     "any actual question in the message.\n"
     "- Keep the whole thing under ~120 words."
 )
+
+COMPLIMENT_SYSTEM_PROMPT = (
+    f"{MATH_INSTRUCTIONS}"
+    "The user has explicitly typed /compliment, asking for the opposite of a roast. "
+    "This is consensual and expected — commit fully.\n\n"
+    "For this ONE reply only:\n"
+    "- Open with a short, wildly over-the-top, sincere-sounding compliment about the "
+    "user, based on whatever context is available in the conversation so far. If "
+    "there's no context yet, compliment them for the sheer bravery of showing up.\n"
+    "- Play it completely straight, like a nature documentary narrator or an awards "
+    "show host — the humor comes from the excess, not from winking at the camera.\n"
+    "- After the compliment, drop the act and go back to being a normal helpful "
+    "assistant for any actual question in the message.\n"
+    "- Keep the whole thing under ~120 words."
+)
+
+MAGIC_8BALL_ANSWERS = [
+    "It is certain.", "Without a doubt.", "Yes, definitely.", "You may rely on it.",
+    "As I see it, yes.", "Most likely.", "Outlook good.", "Signs point to yes.",
+    "Reply hazy, try again.", "Ask again later.", "Better not tell you now.",
+    "Cannot predict now.", "Concentrate and ask again.",
+    "Don't count on it.", "My reply is no.", "My sources say no.",
+    "Outlook not so good.", "Very doubtful.",
+]
 
 # -------------------------------------------------------------------
 # Persona data
@@ -210,15 +243,22 @@ SUPER_POOL = PersonaPool(
 )
 
 
-def build_system_prompt(super_mode: bool, normal_mode: bool = False, roast: bool = False) -> str:
+def build_system_prompt(
+    super_mode: bool,
+    normal_mode: bool = False,
+    special: str | None = None,
+) -> str:
     """Assemble the system prompt for this turn.
 
-    If roast is True, override everything with the one-off roast prompt.
-    Else if normal_mode is on, use a randomized funny-but-competent
-    assistant persona. Otherwise build a randomized waifu persona prompt.
+    `special` is a one-off override ("roast" or "compliment") that takes
+    priority over everything else but doesn't change any persistent mode.
+    Otherwise: normal_mode -> randomized funny-but-competent assistant,
+    else -> randomized waifu persona.
     """
-    if roast:
+    if special == "roast":
         return ROAST_SYSTEM_PROMPT
+    if special == "compliment":
+        return COMPLIMENT_SYSTEM_PROMPT
 
     if normal_mode:
         return build_normal_system_prompt()
@@ -251,22 +291,36 @@ def build_system_prompt(super_mode: bool, normal_mode: bool = False, roast: bool
 
 
 # -------------------------------------------------------------------
-# Profanity filter
+# Profanity filter (double layer: ML score + rule-based)
 # -------------------------------------------------------------------
 
 def profanity_score(text: str) -> float:
-    """Return a 0-1 probability that `text` contains profanity."""
+    """Return a 0-1 probability that `text` contains profanity (ML model)."""
     if not text:
         return 0.0
     return float(predict_prob([text])[0])
 
-def profanity_filter(text: str) -> str:
+
+def rule_based_is_profane(text: str) -> bool:
+    """Second opinion via a rule/wordlist-based check, independent of the
+    ML model above. Catches things the classifier wasn't trained on;
+    the classifier in turn catches sneakier phrasing this misses.
+    """
     if not text:
-        return "nothing is entered
-    return pf.censor(text)
-    
-    
-        
+        return False
+    return bool(pf.is_profane(text))
+
+
+def check_profanity(text: str) -> tuple[bool, float, bool]:
+    """Run both filters and decide whether to block.
+
+    Returns (blocked, ml_score, rule_flagged) so the caller can show
+    exactly why a message was blocked.
+    """
+    ml_score = profanity_score(text)
+    rule_flagged = rule_based_is_profane(text)
+    blocked = (ml_score >= PROFANITY_THRESHOLD) or rule_flagged
+    return blocked, ml_score, rule_flagged
 
 
 # -------------------------------------------------------------------
@@ -315,93 +369,145 @@ if "chat_history" not in st.session_state:
 if "super_mode" not in st.session_state:
     st.session_state.super_mode = True
 
+
 # -------------------------------------------------------------------
-# Sidebar
+# UI helpers
 # -------------------------------------------------------------------
 
-with st.sidebar:
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.session_state.normal_mode = st.toggle(
+            "Normal assistant mode",
+            value=st.session_state.normal_mode,
+            help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
+        )
 
-   # st.session_state.normal_mode = st.toggle(
-      #  "Normal assistant mode",
-     #   value=st.session_state.normal_mode,
-     #   help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
- #   )
+        st.session_state.super_mode = st.toggle(
+            "Super mode",
+            value=st.session_state.super_mode,
+            disabled=st.session_state.normal_mode,
+            help="Only applies when normal assistant mode is off.",
+        )
 
-   # st.session_state.super_mode = st.toggle(
-      #  "Super mode",
-     #   value=st.session_state.super_mode,
-     #   disabled=st.session_state.normal_mode,
-      #  help="Only applies when normal assistant mode is off.",
-    #)
+        if st.button("Clear chat"):
+            st.session_state.chat_history = []
+            st.rerun()
 
-    if st.button("Clear chat"):
-        st.session_state.chat_history = []
+        if st.button("Log out"):
+            st.session_state.logged_in = False
+            st.rerun()
+
+
+def render_title() -> None:
+    if st.session_state.normal_mode:
+        st.title("💬 Chat Assistant")
+        st.caption("Ask me anything. (psst — try /roast, /compliment, /8ball)")
+    else:
+        st.title("hmmmm. in dev. dont use")
+        st.caption("hmmm ")
+
+
+def render_chat_history() -> None:
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+
+def handle_hidden_commands(user_input: str) -> bool:
+    """Handle mode-switching commands that never touch the model.
+
+    Returns True if the input was consumed as a command (caller should
+    stop processing this input further).
+    """
+    if user_input == "dev mode":
+        st.session_state.normal_mode = False
         st.rerun()
+        return True
 
-    if st.button("Log out"):
-        st.session_state.logged_in = False
+    if st.session_state.normal_mode is False and user_input == "norm mode":
+        st.session_state.normal_mode = True
         st.rerun()
+        return True
 
-# -------------------------------------------------------------------
-# Main chat UI
-# -------------------------------------------------------------------
+    return False
 
-if st.session_state.normal_mode:
-    st.title("💬 Chat Assistant")
-    st.caption("Ask me anything. (psst — try /roast)")
-else:
-    st.title("hmmmm. in dev. dont use")
-    st.caption("hmmm ")
 
-for msg in st.session_state.chat_history:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+def handle_8ball(user_input: str) -> bool:
+    """Instant, no-API-call easter egg. Returns True if handled."""
+    if user_input.strip().lower().startswith("/8ball"):
+        with st.chat_message("user"):
+            st.markdown(user_input)
+        with st.chat_message("assistant"):
+            st.markdown(f"🎱 {random.choice(MAGIC_8BALL_ANSWERS)}")
+        # Not added to chat_history — it's a toy, not part of the real
+        # conversation the model needs context on.
+        return True
+    return False
 
-user_input = st.chat_input("Say something...")
 
-if user_input == "dev mode":
-    st.session_state.normal_mode = False
-    st.rerun()
+def call_model(messages: list) -> str:
+    """Call the Groq-backed chat completion endpoint, with a persona-
+    flavored fallback message if the request fails."""
+    try:
+        response = client.chat.completions.create(model=GROQ_MODEL, messages=messages)
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"*explodes dramatically* ERROR: {e}"
 
-if st.session_state.normal_mode == False and user_input == "norm mode":
-    st.session_state.normal_mode = True
-    st.rerun()
 
-if user_input:
-    score = profanity_score(user_input)
+def handle_user_message(user_input: str) -> None:
+    blocked, ml_score, rule_flagged = check_profanity(user_input)
 
-    if score >= PROFANITY_THRESHOLD:
+    if blocked:
         # Don't add it to chat_history and don't call the model — just
         # show it in this run so the user sees their own message and why
         # it was blocked.
         with st.chat_message("user"):
             st.markdown(user_input)
         with st.chat_message("assistant"):
-            st.warning(f"Message blocked by profanity filter (score: {score}).")
-    else:
-        # /roast is a one-off system prompt override — it doesn't change
-        # any persistent mode, it just makes this single reply savage.
-        roast_requested = user_input.strip().lower().startswith("/roast")
+            reason = []
+            if ml_score >= PROFANITY_THRESHOLD:
+                reason.append(f"ML score {ml_score:.2f}")
+            if rule_flagged:
+                reason.append("rule-based filter")
+            st.warning(f"Message blocked by profanity filter ({', '.join(reason)}).")
+        return
 
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+    stripped = user_input.strip().lower()
+    special = "roast" if stripped.startswith("/roast") else (
+        "compliment" if stripped.startswith("/compliment") else None
+    )
 
-        system_prompt = build_system_prompt(
-            st.session_state.super_mode,
-            st.session_state.normal_mode,
-            roast=roast_requested,
-        )
-        messages = [{"role": "system", "content": system_prompt}] + st.session_state.chat_history
+    st.session_state.chat_history.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-        with st.chat_message("assistant"):
-            with st.spinner("..."):
-                try:
-                    response = client.chat.completions.create(model=GROQ_MODEL, messages=messages)
-                    reply = response.choices[0].message.content
-                except Exception as e:
-                    reply = f"*explodes dramatically* ERROR: {e}"
+    system_prompt = build_system_prompt(
+        st.session_state.super_mode,
+        st.session_state.normal_mode,
+        special=special,
+    )
+    messages = [{"role": "system", "content": system_prompt}] + st.session_state.chat_history
 
-            st.markdown(reply)
+    with st.chat_message("assistant"):
+        with st.spinner("..."):
+            reply = call_model(messages)
+        st.markdown(reply)
 
-        st.session_state.chat_history.append({"role": "assistant", "content": reply})
+    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
+
+# -------------------------------------------------------------------
+# Main
+# -------------------------------------------------------------------
+
+render_sidebar()
+render_title()
+render_chat_history()
+
+user_input = st.chat_input("Say something...")
+
+if user_input:
+    if not handle_hidden_commands(user_input):
+        if not handle_8ball(user_input):
+            handle_user_message(user_input)
