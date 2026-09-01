@@ -5,6 +5,8 @@ Cleaned up from the original: dead code removed, persona data centralized,
 config validated up front, and the request/response flow simplified.
 
 Added: score-based profanity filtering on user input via alt-profanity-check.
+Added: randomized comedic styles for normal assistant mode.
+Added: /roast easter egg for a one-off extra-savage reply.
 """
 
 import os
@@ -62,11 +64,60 @@ MATH_INSTRUCTIONS = (
     "- Never use (...) or [...] as math delimiters.\n\n"
 )
 
-NORMAL_SYSTEM_PROMPT = (
+# -------------------------------------------------------------------
+# Normal mode comedic styles
+#
+# Same idea as the waifu persona pools below: pick a random flavor per
+# conversation turn instead of using one static system prompt. Keeps
+# normal mode funny without making it any less useful — the rules block
+# is what keeps the model from either ignoring the question to do a bit,
+# or bolting one joke onto the end and calling it a day.
+# -------------------------------------------------------------------
+
+NORMAL_STYLES = [
+    "a sarcastic, deadpan coworker who's competent but can't resist a dry aside",
+    "an irrepressible dad-joke enthusiast who sneaks in a pun whenever remotely possible",
+    "a hype-man who narrates mundane tasks like they're the season finale",
+    "someone who gently roasts the question before answering it thoroughly",
+    "a movie-trailer voiceover guy who treats every explanation like it's epic",
+    "an assistant who is deeply, personally offended by bad code or bad decisions, but fixes them anyway",
+    "a noir detective narrating the investigation into why your code doesn't work",
+    "an overly competitive assistant who treats every task like it's a speedrun",
+]
+
+
+def build_normal_system_prompt() -> str:
+    style = random.choice(NORMAL_STYLES)
+    return (
+        f"{MATH_INSTRUCTIONS}"
+        "You are a helpful, clear AI assistant — but you are also genuinely funny, "
+        "not corporate-safe-funny.\n\n"
+        f"Comedic style for this conversation: {style}.\n\n"
+        "Rules:\n"
+        "- The answer must still be accurate, direct, and actually solve the user's problem — "
+        "jokes are garnish, not the meal.\n"
+        "- Weave humor into the explanation itself rather than bolting a joke onto the front or "
+        "end.\n"
+        "- Don't repeat the same joke structure every message — vary it.\n"
+        "- Ask a clarifying question only if the request is genuinely ambiguous."
+    )
+
+
+ROAST_SYSTEM_PROMPT = (
     f"{MATH_INSTRUCTIONS}"
-    "You are a helpful, clear, and friendly AI assistant. "
-    "Answer directly and concisely, and ask a clarifying question only if "
-    "the request is genuinely ambiguous."
+    "The user has explicitly typed /roast, asking to be roasted. This is consensual "
+    "and expected — commit fully.\n\n"
+    "For this ONE reply only:\n"
+    "- Open with a short, creative, savage-but-affectionate roast of the user based on "
+    "whatever context is available in the conversation so far (their questions, code, "
+    "choices, whatever's fair game). If there's no context yet, roast the fact that "
+    "they have nothing to roast them on yet.\n"
+    "- Keep it clever, not just mean — wordplay and specificity beat generic insults.\n"
+    "- No slurs, no protected-class attacks, no genuinely cruel territory (health, "
+    "appearance beyond mild teasing, family tragedy, etc.) — this is a bit, not bullying.\n"
+    "- After the roast, drop the act and go back to being a normal helpful assistant for "
+    "any actual question in the message.\n"
+    "- Keep the whole thing under ~120 words."
 )
 
 # -------------------------------------------------------------------
@@ -155,14 +206,18 @@ SUPER_POOL = PersonaPool(
 )
 
 
-def build_system_prompt(super_mode: bool, normal_mode: bool = False) -> str:
+def build_system_prompt(super_mode: bool, normal_mode: bool = False, roast: bool = False) -> str:
     """Assemble the system prompt for this turn.
 
-    If normal_mode is on, skip the persona entirely and act like a plain
-    assistant. Otherwise build a randomized waifu persona prompt.
+    If roast is True, override everything with the one-off roast prompt.
+    Else if normal_mode is on, use a randomized funny-but-competent
+    assistant persona. Otherwise build a randomized waifu persona prompt.
     """
+    if roast:
+        return ROAST_SYSTEM_PROMPT
+
     if normal_mode:
-        return NORMAL_SYSTEM_PROMPT
+        return build_normal_system_prompt()
 
     pool = SUPER_POOL if super_mode else NORMAL_POOL
 
@@ -222,7 +277,7 @@ def require_login() -> None:
     st.title("Because of some people")
     st.caption("There is now a login screen")
     st.write("Please get a key from the owner to access.")
-    st.stop() 
+    st.stop()
 
 
 @st.dialog("Enter Passcode")
@@ -254,11 +309,11 @@ if "super_mode" not in st.session_state:
 
 with st.sidebar:
 
-   # st.session_state.normal_mode = st.toggle(
-      #  "Normal assistant mode",
-     #   value=st.session_state.normal_mode,
-    #    help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
-   #)
+    st.session_state.normal_mode = st.toggle(
+        "Normal assistant mode",
+        value=st.session_state.normal_mode,
+        help="Turns off the waifu persona and makes this behave like a plain chat assistant.",
+    )
 
     st.session_state.super_mode = st.toggle(
         "Super mode",
@@ -281,7 +336,7 @@ with st.sidebar:
 
 if st.session_state.normal_mode:
     st.title("💬 Chat Assistant")
-    st.caption("Ask me anything.")
+    st.caption("Ask me anything. (psst — try /roast)")
 else:
     st.title("hmmmm. in dev. dont use")
     st.caption("hmmm ")
@@ -312,11 +367,19 @@ if user_input:
         with st.chat_message("assistant"):
             st.warning(f"Message blocked by profanity filter (score: {score}).")
     else:
+        # /roast is a one-off system prompt override — it doesn't change
+        # any persistent mode, it just makes this single reply savage.
+        roast_requested = user_input.strip().lower().startswith("/roast")
+
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        system_prompt = build_system_prompt(st.session_state.super_mode, st.session_state.normal_mode)
+        system_prompt = build_system_prompt(
+            st.session_state.super_mode,
+            st.session_state.normal_mode,
+            roast=roast_requested,
+        )
         messages = [{"role": "system", "content": system_prompt}] + st.session_state.chat_history
 
         with st.chat_message("assistant"):
