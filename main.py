@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import streamlit as st
 from openai import OpenAI
 from profanity_check import predict_prob
-from better_profanity import ProfanityFilter
+from better_profanity import profanity
 
 # -------------------------------------------------------------------
 # Session state must be initialized before st.set_page_config() if the
@@ -43,14 +43,15 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 PROFANITY_THRESHOLD = 0.8
 
 # Rule-based filter, used as a second opinion alongside the ML score.
-# Cached as a resource so it isn't rebuilt (it loads a wordlist/spacy
-# model under the hood) on every Streamlit rerun.
+# better_profanity ships its own wordlist; load it once per process
+# rather than on every Streamlit rerun.
 @st.cache_resource
-def get_rule_based_filter() -> ProfanityFilter:
-    return ProfanityFilter()
+def load_rule_based_wordlist() -> None:
+    profanity.load_censor_words()
+    return None
 
 
-pf = get_rule_based_filter()
+load_rule_based_wordlist()
 
 
 def get_secret(name: str) -> str:
@@ -308,7 +309,7 @@ def rule_based_is_profane(text: str) -> bool:
     """
     if not text:
         return False
-    return bool(pf.is_profane(text))
+    return bool(profanity.contains_profanity(text))
 
 
 def check_profanity(text: str) -> tuple[bool, float, bool]:
