@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import streamlit as st
 from openai import OpenAI
 from profanity_check import predict_prob
-from profanity_filter import ProfanityFilter
+from better_profanity import ProfanityFilter
 
 # -------------------------------------------------------------------
 # Session state must be initialized before st.set_page_config() if the
