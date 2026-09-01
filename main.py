@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 import streamlit as st
 from openai import OpenAI
 from profanity_check import predict_prob
+from profanity_filter import ProfanityFilter
 
 # -------------------------------------------------------------------
 # Session state must be initialized before st.set_page_config() if the
@@ -40,6 +41,9 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # Profanity filter threshold: predict_prob returns a float in [0, 1].
 # Anything at or above this is treated as profane and blocked.
 PROFANITY_THRESHOLD = 0.8
+
+pf = ProfanityFilter()
+
 
 
 def get_secret(name: str) -> str:
@@ -255,6 +259,14 @@ def profanity_score(text: str) -> float:
     if not text:
         return 0.0
     return float(predict_prob([text])[0])
+
+def profanity_filter(text: str) -> str:
+    if not text:
+        return "nothing is entered
+    return pf.censor(text)
+    
+    
+        
 
 
 # -------------------------------------------------------------------
