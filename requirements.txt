@@ -1,4 +1,4 @@
+streamlit
 openai
 alt-profanity-check
-streamlit
-profanity_filter
+better-profanity
